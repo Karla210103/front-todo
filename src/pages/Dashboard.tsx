@@ -23,9 +23,7 @@ type Task = {
   pending?: boolean;          
 };
 
-
 const isLocalId = (id: string) => !/^[a-f0-9]{24}$/i.test(id);
-
 
 function normalizeTask(x: any): Task {
   return {
@@ -57,11 +55,9 @@ export default function Dashboard() {
   const [editingDescription, setEditingDescription] = useState("");
   const [online, setOnline] = useState<boolean>(navigator.onLine);
   
-  
   const [userName, setUserName] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  
   
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -78,7 +74,6 @@ export default function Dashboard() {
     const name = localStorage.getItem("userName") || "Usuario";
     setUserName(name);
 
-    
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
@@ -86,7 +81,6 @@ export default function Dashboard() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    
     const on = async () => {
       setOnline(true);
       await syncNow();        
@@ -125,7 +119,6 @@ export default function Dashboard() {
     }
   }
 
-  // ➡️ ACCIÓN: CAMBIAR CONTRASEÑA EN EL SERVIDOR
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setModalError("");
@@ -143,17 +136,16 @@ export default function Dashboard() {
 
     setPasswordLoading(true);
     try {
-      
       await api.put("/auth/change-password", {
         currentPassword,
         newPassword,
-      });
+        });
 
       setModalSuccess("¡Contraseña actualizada correctamente!");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setTimeout(() => setModalOpen(false), 2000); // Cierra el modal tras 2 segundos
+      setTimeout(() => setModalOpen(false), 2000); 
     } catch (err: any) {
       setModalError(err.response?.data?.message || "Error al cambiar la contraseña.");
     } finally {
@@ -188,7 +180,7 @@ export default function Dashboard() {
         clienteId,
         data: localTask,
         ts: Date.now(),
-      };
+      } as any;
       await queue(op);
       return;
     }
@@ -205,7 +197,7 @@ export default function Dashboard() {
         clienteId,
         data: localTask,
         ts: Date.now(),
-      };
+      } as any;
       await queue(op);
     }
   }
@@ -228,11 +220,13 @@ export default function Dashboard() {
     await putTaskLocal(patched);
     setEditingId(null);
 
+    const cId = isLocalId(taskId) ? taskId : (before?.clienteId ?? "");
+
     if (!navigator.onLine) {
       await queue({
         id: "upd-" + taskId,
         op: "update",
-        clienteId: isLocalId(taskId) ? taskId : undefined,
+        clienteId: cId || undefined,
         serverId: isLocalId(taskId) ? undefined : taskId,
         data: { title: newTitle, description: newDesc },
         ts: Date.now(),
@@ -246,6 +240,7 @@ export default function Dashboard() {
       await queue({
         id: "upd-" + taskId,
         op: "update",
+        clienteId: cId || undefined,
         serverId: taskId,
         data: { title: newTitle, description: newDesc },
         ts: Date.now(),
@@ -258,15 +253,17 @@ export default function Dashboard() {
     setTasks((prev) => prev.map((x) => (x._id === task._id ? updated : x)));
     await putTaskLocal(updated);
 
+    const cId = task.clienteId ?? "";
+
     if (!navigator.onLine) {
       await queue({
         id: "upd-" + task._id,
         op: "update",
         serverId: isLocalId(task._id) ? undefined : task._id,
-        clienteId: isLocalId(task._id) ? task._id : undefined,
+        clienteId: cId || undefined,
         data: { status: newStatus },
         ts: Date.now(),
-      });
+      } as OutboxOp);
       return;
     }
 
@@ -277,14 +274,18 @@ export default function Dashboard() {
         id: "upd-" + task._id,
         op: "update",
         serverId: task._id,
+        clienteId: cId || undefined,
         data: { status: newStatus },
         ts: Date.now(),
-      });
+      } as OutboxOp);
     }
   }
 
   async function removeTask(taskId: string) {
     const backup = tasks;
+    const taskToDelete = tasks.find((t) => t._id === taskId);
+    const cId = taskToDelete?.clienteId ?? "";
+
     setTasks((prev) => prev.filter((t) => t._id !== taskId));
     await removeTaskLocal(taskId);
 
@@ -293,9 +294,9 @@ export default function Dashboard() {
         id: "del-" + taskId,
         op: "delete",
         serverId: isLocalId(taskId) ? undefined : taskId,
-        clienteId: isLocalId(taskId) ? taskId : undefined,
+        clienteId: cId || undefined,
         ts: Date.now(),
-      });
+      } as OutboxOp);
       return;
     }
 
@@ -308,9 +309,9 @@ export default function Dashboard() {
         id: "del-" + taskId,
         op: "delete",
         serverId: taskId,
-        clienteId: isLocalId(taskId) ? taskId : undefined,
+        clienteId: cId || undefined,
         ts: Date.now(),
-      });
+      } as OutboxOp);
     }
   }
 
@@ -345,9 +346,7 @@ export default function Dashboard() {
 
   const userInitial = userName.charAt(0).toUpperCase();
 
-  //Estilos del tudu 
-
- return (
+  return (
     <div className="wrap" style={{ backgroundColor: "#0b0f19", color: "#f1f5f9", minHeight: "100vh" }}>
       <header className="topbar" style={{
         display: "flex",
@@ -401,7 +400,6 @@ export default function Dashboard() {
             </div>
           </button>
 
-         
           {dropdownOpen && (
             <div className="dropdown-menu" style={{
               position: "absolute",
@@ -627,7 +625,7 @@ export default function Dashboard() {
         )}
       </main>
 
-      {/* ➡️ VENTA MODAL EN EMERGENTE PARA CAMBIAR CONTRASEÑA */}
+      {/* ===== Modal Cambiar Contraseña ===== */}
       {modalOpen && (
         <div className="modal-backdrop" style={{
           position: "fixed",

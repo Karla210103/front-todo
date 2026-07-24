@@ -2,6 +2,7 @@ import {useState} from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {api, setAuth} from '../api';
 import logo from '../assets/logo.png';
+import "./Auth.css";
 
 
 export default function Register() {
@@ -29,25 +30,27 @@ export default function Register() {
 
     return (
         <div className="auth-wrap">
-            <div className="card">
-                <div className="brand">
-                    <img src={logo} alt="Logo" className="logo-img" />
+            <div className="auth-card">
+                <div className="auth-brand">
+                    <div className="auth-badge">
+                        <img src={logo} alt="Logo" className="auth-logo-img" />
+                    </div>
                     <h2>Crear Cuenta</h2>
-                    <p className="muted">Únete, Ándale</p>
+                    <p className="auth-muted">Únete a nuestra comunidad</p>
                 </div>
-                <form className="form" onSubmit={onSubmit}>
+                <form className="auth-form" onSubmit={onSubmit}>
                     <label>Nombre completo</label>
                     <input
                         type="text"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="Ingresa tu nombre papí"
+                        placeholder="Ingresa tu nombre"
                         required
                     />
                     <label> Correo electrónico </label>
                     <input
                         type="email"
-                        placeholder="Ingresa tu correo electrónico papí"
+                        placeholder="Ingresa tu correo electrónico"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
@@ -55,16 +58,21 @@ export default function Register() {
                     <label>Contraseña</label>
                     <input
                         type="password"
-                        placeholder="Ingresa tu contraseña papí"
+                        placeholder="Ingresa tu contraseña"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
                     />
-                    <button type="submit" disabled={loading}>
+
+                    {error && <div className="auth-alert">{error}</div>}
+
+                    <button type="submit" className="auth-btn-primary" disabled={loading}>
                         {loading ? "Registrando..." : "Registrarse"}
                     </button>
-                    <p className="muted">¿Ya tienes una cuenta? <Link to="/">Inicia sesión</Link></p>
-                    {error && <p className="error">{error}</p>}
+                    <div className="auth-footer-links">
+                        <span className="auth-muted">¿Ya tienes una cuenta?</span>
+                        <Link to="/" className="auth-link">Inicia sesión</Link>
+                    </div>
                 </form>
             </div>
         </div>

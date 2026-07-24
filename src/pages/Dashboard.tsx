@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, setAuth } from "../api";
 import {
   cacheTasks,
@@ -8,22 +9,50 @@ import {
   queue,
   type OutboxOp,
 } from "../assets/offline/db";
-import { syncNow } from "../assets/offline/sync"; // ⬅️ SOLO syncNow
+import { syncNow } from "../assets/offline/sync";
+import "./Dashboard.css";
 
 type Status = "Pendiente" | "En Progreso" | "Completada";
 
+type Subtask = {
+  _id?: string;
+  title: string;
+  description?: string;
+  completed: boolean;
+};
+
 type Task = {
-  _id: string;                 
+  _id: string;
   title: string;
   description?: string;
   status: Status;
   clienteId?: string;
   createdAt?: string;
   deleted?: boolean;
-  pending?: boolean;          
+  pending?: boolean;
+  subtasks?: Subtask[];
+  progress?: number;
 };
 
 const isLocalId = (id: string) => !/^[a-f0-9]{24}$/i.test(id);
+
+function statusClass(status: Status) {
+  if (status === "Completada") return "status-completada";
+  if (status === "En Progreso") return "status-en-progreso";
+  return "status-pendiente";
+}
+
+function statusLabel(status: Status) {
+  return status;
+}
+
+function computeProgress(t: Task): number {
+  if (t.subtasks && t.subtasks.length > 0) {
+    const done = t.subtasks.filter((s) => s.completed).length;
+    return Math.round((done / t.subtasks.length) * 100);
+  }
+  return t.progress ?? 0;
+}
 
 function normalizeTask(x: any): Task {
   return {
@@ -40,10 +69,13 @@ function normalizeTask(x: any): Task {
     createdAt: x?.createdAt,
     deleted: !!x?.deleted,
     pending: !!x?.pending,
+    subtasks: Array.isArray(x?.subtasks) ? x.subtasks : [],
+    progress: typeof x?.progress === "number" ? x.progress : 0,
   };
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
@@ -54,11 +86,12 @@ export default function Dashboard() {
   const [editingTitle, setEditingTitle] = useState("");
   const [editingDescription, setEditingDescription] = useState("");
   const [online, setOnline] = useState<boolean>(navigator.onLine);
-  
+  const [showAddForm, setShowAddForm] = useState(false);
+
   const [userName, setUserName] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -83,8 +116,8 @@ export default function Dashboard() {
 
     const on = async () => {
       setOnline(true);
-      await syncNow();        
-      await loadFromServer(); 
+      await syncNow();
+      await loadFromServer();
     };
     const off = () => setOnline(false);
     window.addEventListener("online", on);
@@ -107,7 +140,7 @@ export default function Dashboard() {
 
   async function loadFromServer() {
     try {
-      const { data } = await api.get("/tasks"); 
+      const { data } = await api.get("/tasks");
       const raw = Array.isArray(data?.items) ? data.items : [];
       const list = raw.map(normalizeTask);
       setTasks(list);
@@ -136,16 +169,13 @@ export default function Dashboard() {
 
     setPasswordLoading(true);
     try {
-      await api.put("/auth/change-password", {
-        currentPassword,
-        newPassword,
-        });
+      await api.put("/auth/change-password", { currentPassword, newPassword });
 
       setModalSuccess("¡Contraseña actualizada correctamente!");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setTimeout(() => setModalOpen(false), 2000); 
+      setTimeout(() => setModalOpen(false), 2000);
     } catch (err: any) {
       setModalError(err.response?.data?.message || "Error al cambiar la contraseña.");
     } finally {
@@ -172,6 +202,7 @@ export default function Dashboard() {
     await putTaskLocal(localTask);
     setTitle("");
     setDescription("");
+    setShowAddForm(false);
 
     if (!navigator.onLine) {
       const op: OutboxOp = {
@@ -210,7 +241,7 @@ export default function Dashboard() {
 
   async function saveEdit(taskId: string) {
     const newTitle = editingTitle.trim();
-    const newDesc  = editingDescription.trim();
+    const newDesc = editingDescription.trim();
     if (!newTitle) return;
 
     const before = tasks.find((t) => t._id === taskId);
@@ -317,9 +348,14 @@ export default function Dashboard() {
 
   function logout() {
     localStorage.removeItem("token");
-    localStorage.removeItem("userName"); 
+    localStorage.removeItem("userName");
     setAuth(null);
-    window.location.href = "/"; 
+    window.location.href = "/";
+  }
+
+  function goToDetail(taskId: string) {
+    if (isLocalId(taskId)) return;
+    navigate(`/tasks/${taskId}`);
   }
 
   const filtered = useMemo(() => {
@@ -341,366 +377,273 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const total = tasks.length;
     const done = tasks.filter((t) => t.status === "Completada").length;
-    return { total, done, pending: total - done };
+    const focus = total === 0 ? 0 : Math.round((done / total) * 100);
+    return { total, done, pending: total - done, focus };
   }, [tasks]);
 
   const userInitial = userName.charAt(0).toUpperCase();
+  const firstName = userName.split(" ")[0];
 
   return (
-    <div className="wrap" style={{ backgroundColor: "#0b0f19", color: "#f1f5f9", minHeight: "100vh" }}>
-      <header className="topbar" style={{
-        display: "flex",
-        alignItems: "center",
-        padding: "24px 40px",
-        backgroundColor: "#111827",
-        borderBottom: "1px solid #1f2937",
-        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.2)"
-      }}>
-        <h1>Lista de tareas</h1>
-        <div className="spacer" />
-        
-        <div className="profile-container" ref={dropdownRef} style={{ position: "relative" }}>
-          <button 
+    <div className="tb-wrap">
+      <header className="tb-topbar">
+        <div className="tb-brand">
+          <div className="tb-brand-badge">✓</div>
+          <div>
+            <h1>To-do Karlita</h1>
+            <span className="tb-brand-sub">Stay Focused</span>
+          </div>
+        </div>
+
+        <div className="tb-spacer" />
+
+        <div className={`tb-connection ${online ? "online" : "offline"}`}>
+          {online ? "Online" : "Offline"}
+        </div>
+
+        <div className="tb-profile-container" ref={dropdownRef}>
+          <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="user-profile-box" 
-            style={{ 
-              display: "flex", 
-              alignItems: "center", 
-              gap: "12px",
-              background: dropdownOpen ? "#1e293b" : "#0f172a",
-              padding: "10px 18px",
-              borderRadius: "4px",
-              marginRight: "16px",
-              border: "1px solid #334155",
-              cursor: "pointer",
-              textAlign: "left",
-              fontFamily: "inherit",
-              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
-              transition: "all 0.15s ease"
-            }}
+            className={`tb-profile-btn${dropdownOpen ? " open" : ""}`}
           >
-            <div className="user-avatar" style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "4px",
-              background: "#1c6bd9",
-              color: "#f8fafc",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "12px",
-              fontWeight: "600",
-              letterSpacing: "0.5px"
-            }}>
-              {userInitial}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", lineHeight: "1.3" }}>
-              <span style={{ fontSize: "9px", fontWeight: "600", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.8px", color: "#ffffff" }}>Bienvenido:</span>
-              <span style={{ fontSize: "13px", fontWeight: "500", color: "#ffffff" }}>{userName} ▾</span>
-            </div>
+            <div className="tb-avatar">{userInitial}</div>
+            <span className="tb-profile-name">{userName} ▾</span>
           </button>
 
           {dropdownOpen && (
-            <div className="dropdown-menu" style={{
-              position: "absolute",
-              top: "54px",
-              right: "16px",
-              background: "#0f172a",
-              border: "1px solid #334155",
-              borderRadius: "4px",
-              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)",
-              width: "190px",
-              zIndex: 100,
-              overflow: "hidden"
-            }}>
-              <div style={{ padding: "10px 14px", borderBottom: "1px solid #1e293b", fontSize: "10px", fontWeight: "600", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.8px" }}>
-                Configuraciones
-              </div>
-              <button 
+            <div className="tb-dropdown">
+              <div className="tb-dropdown-header">Configuraciones</div>
+              <button
+                className="tb-dropdown-item"
                 onClick={() => { setModalOpen(true); setDropdownOpen(false); }}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  background: "none",
-                  border: "none",
-                  color: "#94a3b8",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  transition: "all 0.15s"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1e293b";
-                  e.currentTarget.style.color = "#f8fafc";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                  e.currentTarget.style.color = "#94a3b8";
-                }}
               >
                 🔑 Cambiar Contraseña
               </button>
-              <button 
-                onClick={logout}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  background: "none",
-                  border: "none",
-                  color: "#f1f5f9",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  borderTop: "1px solid #1e293b",
-                  transition: "all 0.15s"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#ef4444";
-                  e.currentTarget.style.color = "#ffffff";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                  e.currentTarget.style.color = "#f1f5f9";
-                }}
-              >
+              <button className="tb-dropdown-item danger" onClick={logout}>
                 🚪 Cerrar Sesión
               </button>
             </div>
           )}
         </div>
-
-        <div className="stats" style={{ display: "flex", gap: "24px", alignItems: "center", color: "#94a3b8", fontSize: "14px" }}>
-          <span>Total: <strong style={{ color: "#ffffff" }}>{stats.total}</strong></span>
-          <span>Hechas: <strong style={{ color: "#10b981" }}>{stats.done}</strong></span>
-          <span>Pendientes: <strong style={{ color: "#d97706" }}>{stats.pending}</strong></span>
-          <span className="badge" style={{ marginLeft: 8, background: online ? "#075b31" : "#000000", borderRadius: "4px", fontWeight: "600", fontSize: "11px", letterSpacing: "0.5px", padding: "4px 12px" }}>
-            {online ? "Online" : "Offline"}
-          </span>
-        </div>
       </header>
 
-      <main style={{ maxWidth: "1100px", margin: "48px auto 0 auto", padding: "0 40px" }}>
-        {/* ===== Crear ===== */}
-        <form className="add add-grid" onSubmit={addTask} style={{ display: "flex", flexDirection: "column", gap: "20px", backgroundColor: "#111827", padding: "32px", borderRadius: "4px", border: "1px solid #1f2937", marginBottom: "40px", boxShadow: "0 10px 25px -5px rgba(0,0,0,0.3)" }}>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Título de la tarea…"
-            style={{ width: "100%", padding: "16px 20px", borderRadius: "4px", border: "1px solid #334155", backgroundColor: "#ffffff", color: "#0f172a", fontSize: "16px" }}
-          />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Descripción (opcional)…"
-            rows={2}
-            style={{ width: "100%", padding: "16px 20px", borderRadius: "4px", border: "1px solid #a2a7ae", backgroundColor: "#ffffff", color: "#0f172a", fontSize: "15px", resize: "vertical" }}
-          />
-          <button className="btn" style={{ alignSelf: "stretch", padding: "16px 32px", backgroundColor: "#1e3a8a", color: "#ffffff", border: "none", borderRadius: "4px", fontSize: "14px", fontWeight: "600", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px" }}>Agregar</button>
-        </form>
+      <main className="tb-main">
+        <div className="tb-hero">
+          <div>
+            <h2>Buenos días, {firstName}</h2>
+            <p>Tienes {stats.pending} tareas pendientes por hacer ¿empezamos?.</p>
+          </div>
+          <div className="tb-hero-pills">
+            {/* <div className="tb-pill pill-focus">
+              <span className="pill-value">{stats.focus}%</span>
+              <span className="pill-label">Focus</span>
+            </div> */}
+            <div className="tb-pill pill-done">
+              <span className="pill-value">{stats.done}</span>
+              <span className="pill-label">Hechas</span>
+            </div>
+            <div className="tb-pill pill-total">
+              <span className="pill-value">{stats.total}</span>
+              <span className="pill-label">Total</span>
+            </div>
+          </div>
+        </div>
 
-        {/* ===== Toolbar ===== */}
-        <div className="toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "24px", marginBottom: "32px" }}>
+        <div className="tb-toolbar">
           <input
-            className="search"
-            placeholder="Buscar por título o descripción…"
+            className="tb-search"
+            placeholder="Buscar tus tareas…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ flexGrow: 1, padding: "14px 20px", borderRadius: "4px", border: "1px solid #1f2937", backgroundColor: "#ffffff", color: "#0f172a", fontSize: "15px" }}
           />
-          <div className="filters" style={{ display: "flex", gap: "10px" }}>
+          <div className="tb-filters">
             <button
-              className={filter === "all" ? "chip active" : "chip"}
+              className={filter === "all" ? "tb-chip active" : "tb-chip"}
               onClick={() => setFilter("all")}
               type="button"
-              style={{ padding: "12px 24px", borderRadius: "4px", cursor: "pointer", fontWeight: "500" }}
             >
               Todas
             </button>
             <button
-              className={filter === "active" ? "chip active" : "chip"}
+              className={filter === "active" ? "tb-chip active" : "tb-chip"}
               onClick={() => setFilter("active")}
               type="button"
-              style={{ padding: "12px 24px", borderRadius: "4px", cursor: "pointer", fontWeight: "500" }}
             >
               Activas
             </button>
             <button
-              className={filter === "completed" ? "chip active" : "chip"}
+              className={filter === "completed" ? "tb-chip active" : "tb-chip"}
               onClick={() => setFilter("completed")}
               type="button"
-              style={{ padding: "12px 24px", borderRadius: "4px", cursor: "pointer", fontWeight: "500" }}
             >
               Hechas
             </button>
           </div>
+          <button
+            type="button"
+            className="tb-btn-primary tb-new-task-btn"
+            onClick={() => setShowAddForm((s) => !s)}
+          >
+            {showAddForm ? "Cancelar" : "+ Nueva tarea"}
+          </button>
         </div>
 
-        {/* ===== Lista ===== */}
+        {showAddForm && (
+          <form className="tb-add-card" onSubmit={addTask}>
+            <label>Nombre de la tarea</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="¿Qué necesitas hacer?"
+              autoFocus
+            />
+            <label>Descripción</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Agrega notas sobre esta tarea…"
+              rows={2}
+            />
+            <button className="tb-btn-primary" type="submit">Crear tarea</button>
+          </form>
+        )}
+
+        <h3 className="tb-section-title">Tus tareas</h3>
+
         {loading ? (
-          <p style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>Cargando…</p>
+          <p className="tb-loading">Cargando…</p>
         ) : filtered.length === 0 ? (
-          <p className="empty" style={{ textAlign: "center", padding: "60px", color: "#edf2f9", backgroundColor: "#111827", borderRadius: "4px", border: "1px solid #1f2937" }}>Sin tareas</p>
+          <p className="tb-empty">Sin tareas por aquí. ¡Crea la primera! 🌸</p>
         ) : (
-          <ul className="list" style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "20px" }}>
-            {filtered.map((t) => (
-              <li 
-                key={t._id} 
-                className={t.status === "Completada" ? "item done" : "item"}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "24px",
-                  padding: "24px 32px",
-                  backgroundColor: "#f9f7f7",
-                  color: "#0f172a",
-                  borderRadius: "4px",
-                  boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
-                  borderLeft: t.status === "Completada" ? "30px solid #10b981" : t.status === "En Progreso" ? "30px solid #e17a04" : "30px solid #ed0b0b"
-                }}
-              >
-                <select
-                  value={t.status}
-                  onChange={(e) => handleStatusChange(t, e.target.value as Status)}
-                  className="status-select"
-                  title="Estado"
-                  style={{ padding: "10px 16px", borderRadius: "4px", border: "1px solid #cbd5e1", backgroundColor: "#f8fafc", color: "#0f172a", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}
-                >
-                  <option value="Pendiente">Pendiente</option>
-                  <option value="En Progreso">En Progreso</option>
-                  <option value="Completada">Completada</option>
-                </select>
+          <ul className="tb-task-list">
+            {filtered.map((t) => {
+              const progress = computeProgress(t);
+              return (
+                <li key={t._id} className="tb-task-card">
+                  <div className="tb-task-top">
+                    <select
+                      value={t.status}
+                      onChange={(e) => handleStatusChange(t, e.target.value as Status)}
+                      className={`tb-status-select ${statusClass(t.status)}`}
+                      title="Estado"
+                    >
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="En Progreso">En Progreso</option>
+                      <option value="Completada">Completada</option>
+                    </select>
 
-                <div className="content" style={{ flexGrow: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {editingId === t._id ? (
-                    <>
-                      <input
-                        className="edit"
-                        value={editingTitle}
-                        onChange={(e) => setEditingTitle(e.target.value)}
-                        placeholder="Título"
-                        autoFocus
-                        style={{ padding: "10px", borderRadius: "4px", border: "1px solid #3b82f6", fontSize: "16px" }}
-                      />
-                      <textarea
-                        className="edit"
-                        value={editingDescription}
-                        onChange={(e) => setEditingDescription(e.target.value)}
-                        placeholder="Descripción"
-                        rows={2}
-                        style={{ padding: "10px", borderRadius: "4px", border: "1px solid #3b82f6", fontSize: "14px", resize: "vertical" }}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <span className="title" onDoubleClick={() => startEdit(t)} style={{ fontSize: "18px", fontWeight: "600", color: t.status === "Completada" ? "#060606" : "#000000", textDecoration: t.status === "Completada" ? "line-through" : "none" }}>
-                        {t.title}
-                      </span>
-                      {t.description && <p className="desc" style={{ margin: 0, fontSize: "14px", color: "#475569", lineHeight: "1.5" }}>{t.description}</p>}
-                      {(t.pending || isLocalId(t._id)) && (
-                        <span
-                          className="badge"
-                          title="Aún no sincronizada"
-                          style={{ background: "#d97706", color: "#ffffff", width: "fit-content", padding: "4px 10px", borderRadius: "4px", fontSize: "11px", fontWeight: "500", marginTop: "4px" }}
-                        >
-                          Falta sincronizar
-                        </span>
+                    <div className="tb-task-actions">
+                      {editingId === t._id ? (
+                        <button className="tb-btn-primary tb-btn-small" onClick={() => saveEdit(t._id)}>
+                          Guardar
+                        </button>
+                      ) : (
+                        <button className="tb-icon" title="Editar" onClick={() => startEdit(t)}>✏️</button>
                       )}
-                    </>
-                  )}
-                </div>
+                      <button className="tb-icon danger" title="Eliminar" onClick={() => removeTask(t._id)}>
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
 
-                <div className="actions" style={{ display: "flex", gap: "12px" }}>
-                  {editingId === t._id ? (
-                    <button className="btn" onClick={() => saveEdit(t._id)} style={{ padding: "8px 16px", backgroundColor: "#10b981", color: "#ffffff", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "600" }}>Guardar</button>
-                  ) : (
-                    <button className="icon" title="Editar" onClick={() => startEdit(t)} style={{ background: "none", border: "1px solid #090909", padding: "8px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "16px" }}>✏️</button>
-                  )}
-                  <button className="icon danger" title="Eliminar" onClick={() => removeTask(t._id)} style={{ background: "none", border: "1px solid #000000", padding: "8px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "16px" }}>
-                    🗑️
-                  </button>
-                </div>
-              </li>
-            ))}
+                  <div
+                    className="tb-task-content"
+                    onClick={() => editingId !== t._id && goToDetail(t._id)}
+                  >
+                    {editingId === t._id ? (
+                      <>
+                        <input
+                          className="tb-edit-field"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          placeholder="Título"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <textarea
+                          className="tb-edit-field"
+                          value={editingDescription}
+                          onChange={(e) => setEditingDescription(e.target.value)}
+                          placeholder="Descripción"
+                          rows={2}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <span className={`tb-task-title${t.status === "Completada" ? " done" : ""}`}>
+                          {t.title}
+                        </span>
+                        {t.description && <p className="tb-task-desc">{t.description}</p>}
+
+                        <div className="tb-progress-row">
+                          <div className="tb-progress-track">
+                            <div className="tb-progress-fill" style={{ width: `${progress}%` }} />
+                          </div>
+                          <span className="tb-progress-label">{progress}%</span>
+                          {t.subtasks && t.subtasks.length > 0 && (
+                            <span className="tb-subtask-count">
+                              {t.subtasks.filter((s) => s.completed).length}/{t.subtasks.length} subtareas
+                            </span>
+                          )}
+                        </div>
+
+                        {(t.pending || isLocalId(t._id)) && (
+                          <span className="tb-badge-sync" title="Aún no sincronizada">
+                            Falta sincronizar
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>
 
-      {/* ===== Modal Cambiar Contraseña ===== */}
       {modalOpen && (
-        <div className="modal-backdrop" style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-          background: "rgba(0, 0, 0, 0.7)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div className="modal-content" style={{
-            background: "#161b22",
-            border: "1px solid #30363d",
-            padding: "24px",
-            borderRadius: "12px",
-            width: "100%",
-            maxWidth: "400px",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
-          }}>
-            <h3 style={{ marginTop: 0, marginBottom: "16px", color: "#f0f6fc" }}>Cambiar Contraseña</h3>
-            
-            <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div className="tb-modal-backdrop">
+          <div className="tb-modal-content">
+            <h3>Cambiar Contraseña</h3>
+            <form onSubmit={handleChangePassword} className="tb-modal-form">
               <div>
-                <label style={{ display: "block", fontSize: "13px", marginBottom: "4px", color: "#c9d1d9" }}>Contraseña Actual</label>
-                <input 
-                  type="password" 
-                  value={currentPassword} 
+                <label>Contraseña Actual</label>
+                <input
+                  type="password"
+                  value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  required 
-                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #30363d", background: "#0d1117", color: "#fff" }}
+                  required
                 />
               </div>
-              
               <div>
-                <label style={{ display: "block", fontSize: "13px", marginBottom: "4px", color: "#c9d1d9" }}>Nueva Contraseña</label>
-                <input 
-                  type="password" 
-                  value={newPassword} 
+                <label>Nueva Contraseña</label>
+                <input
+                  type="password"
+                  value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  required 
-                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #30363d", background: "#0d1117", color: "#fff" }}
+                  required
                 />
               </div>
-
               <div>
-                <label style={{ display: "block", fontSize: "13px", marginBottom: "4px", color: "#c9d1d9" }}>Confirmar Nueva Contraseña</label>
-                <input 
-                  type="password" 
-                  value={confirmPassword} 
+                <label>Confirmar Nueva Contraseña</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  required 
-                  style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #30363d", background: "#0d1117", color: "#fff" }}
+                  required
                 />
               </div>
 
-              {modalError && <div style={{ color: "#f85149", fontSize: "13px", marginTop: "4px" }}>⚠️ {modalError}</div>}
-              {modalSuccess && <div style={{ color: "#58a6ff", fontSize: "13px", marginTop: "4px" }}>🎉 {modalSuccess}</div>}
+              {modalError && <div className="tb-modal-error">⚠️ {modalError}</div>}
+              {modalSuccess && <div className="tb-modal-success">🎉 {modalSuccess}</div>}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
-                <button 
-                  type="button" 
-                  onClick={() => setModalOpen(false)} 
-                  className="btn"
-                  style={{ background: "#21262d", color: "#c9d1d9", border: "1px solid #30363d" }}
-                >
+              <div className="tb-modal-actions">
+                <button type="button" onClick={() => setModalOpen(false)} className="tb-btn-secondary">
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={passwordLoading}
-                  className="btn primary"
-                >
+                <button type="submit" disabled={passwordLoading} className="tb-btn-primary">
                   {passwordLoading ? "Actualizando..." : "Guardar"}
                 </button>
               </div>

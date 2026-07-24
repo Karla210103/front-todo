@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, setAuth } from "../api";
 import logo from '../assets/logo.png';
+import "./Auth.css";
 
 export default function Login() {
   const nav = useNavigate();
@@ -41,17 +42,19 @@ export default function Login() {
 
   return (
     <div className="auth-wrap">
-      <div className="card">
+      <div className="auth-card">
 
-        <div className="brand">
-          <img src={logo} alt="Logo" className="logo-img" />
-          <h2>To-Do App</h2>
-          <p className="muted">
-            Organiza tus tareas de manera eficiente
+        <div className="auth-brand">
+          <div className="auth-badge">
+            <img src={logo} alt="Logo" className="auth-logo-img" />
+          </div>
+          <h2>App para tareas kawaii</h2>
+          <p className="auth-muted">
+            Organiza tus tareas de manera eficiente y kawaii
           </p>
         </div>
 
-        <form className="form" onSubmit={onSubmit}>
+        <form className="auth-form" onSubmit={onSubmit}>
 
           <label>Correo electrónico</label>
 
@@ -65,7 +68,7 @@ export default function Login() {
 
           <label>Contraseña</label>
 
-          <div className="pass">
+          <div className="auth-pass">
             <input
               type={show ? "text" : "password"}
               placeholder="••••••••"
@@ -76,7 +79,7 @@ export default function Login() {
 
             <button
               type="button"
-              className="ghost"
+              className="auth-ghost"
               onClick={() => setShow((s) => !s)}
               aria-label="Mostrar/ocultar contraseña"
             >
@@ -84,11 +87,11 @@ export default function Login() {
             </button>
           </div>
 
-          {error && <div className="alert">{error}</div>}
+          {error && <div className="auth-alert">{error}</div>}
 
           <button
             type="submit"
-            className="btn primary"
+            className="auth-btn-primary"
             disabled={loading}
           >
             {loading
@@ -98,12 +101,12 @@ export default function Login() {
 
         </form>
 
-        <div className="footer-links">
-          <span className="muted">
+        <div className="auth-footer-links">
+          <span className="auth-muted">
             ¿No tienes una cuenta?
           </span>
 
-          <Link to="/register" className="link">
+          <Link to="/register" className="auth-link">
             Regístrate aquí
           </Link>
         </div>

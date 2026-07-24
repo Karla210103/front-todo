@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const api = axios.create({
   // Forzamos el localhost en el puerto 4000 directamente:
-  baseURL: 'http://localhost:4000/api',
+  baseURL: 'https://back-todo-ten.vercel.app/',
 });
 
 export function setAuth(token: string | null) {
